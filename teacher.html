@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>SAT Vocab — 老師總覽</title>
+<style>
+body{font-family:-apple-system,"Segoe UI","Microsoft JhengHei","PingFang TC",sans-serif;margin:0;background:#f3f5f9;color:#1c2533}
+header{background:#1f3a5f;color:#fff;padding:14px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+header h1{font-size:18px;margin:0;flex:1}
+main{max-width:1100px;margin:0 auto;padding:16px}
+.login{max-width:340px;margin:80px auto;background:#fff;padding:24px;border-radius:14px;text-align:center}
+input,select,button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid #cfd6e0}
+button{background:#1f3a5f;color:#fff;border-color:#1f3a5f;cursor:pointer}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.cards div{background:#fff;border-radius:12px;padding:12px;text-align:center}.cards b{display:block;font-size:26px}
+section{background:#fff;border-radius:12px;padding:14px;margin-bottom:16px;overflow-x:auto}
+h2{font-size:16px;margin:0 0 10px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:7px 8px;border-bottom:1px solid #e6eaf0;text-align:left;white-space:nowrap}
+th{color:#6b7686;font-weight:600;cursor:pointer}
+td.w{white-space:normal;min-width:220px;color:#b03a30}
+.warn{color:#d9483b;font-weight:700}.ok{color:#1f9d6b;font-weight:700}.off{color:#9aa4b2}
+.missed span{display:inline-block;background:#fdecea;color:#b03a30;border-radius:999px;padding:3px 10px;margin:3px;font-size:14px}
+.err{color:#d9483b;min-height:1.4em}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="js/config.js"></script>
+<script>
+const API = (window.APP_CONFIG || {}).api, root = document.getElementById("root");
+const esc = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+let data = null, cls = "", sortKey = "lastSeen", sortDir = -1;
+function loginView(msg) {
+  root.innerHTML = `<div class="login"><h2>SAT Vocab 老師總覽</h2><p><input id="pw" type="password" placeholder="老師密碼"></p><p><button onclick="load()">進入</button></p><p class="err">${esc(msg || (API ? "" : "尚未設定後端網址"))}</p></div>`;
+  document.getElementById("pw").onkeydown = e => { if (e.key === "Enter") load(); };
+}
+async function load(saved) {
+  const pass = saved || document.getElementById("pw").value;
+  try {
+    const r = await (await fetch(API, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify({ action: "teacher", pass }) })).json();
+    if (!r.ok) { sessionStorage.removeItem("tpw"); return loginView(r.error === "pass" ? "密碼不正確" : "讀取失敗"); }
+    sessionStorage.setItem("tpw", pass); data = r; render();
+  } catch (e) { loginView("無法連線"); }
+}
+const ago = ts => { if (!ts) return "從未"; const d = Math.floor((data.now - ts) / 864e5); return d <= 0 ? "今天" : d + " 天前"; };
+const fmt = ts => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+function render() {
+  const classes = [...new Set(data.students.map(s => s.cls).filter(Boolean))];
+  const st = data.students.filter(s => !cls || s.cls === cls).map(s => Object.assign({ known: 0, l1: 0, l2: 0, l3: 0, streak: 0, quizCount: 0 }, s.p || {}, s));
+  st.sort((a, b) => { const x = a[sortKey], y = b[sortKey]; return (x > y ? 1 : x < y ? -1 : 0) * sortDir; });
+  const qz = data.quizzes.filter(q => !cls || q.cls === cls);
+  const week = qz.filter(q => data.now - q.ts < 7 * 864e5);
+  const miss = {}; qz.forEach(q => String(q.wrong).split(",").map(w => w.trim()).filter(Boolean).forEach(w => miss[w] = (miss[w] || 0) + 1));
+  const top = Object.entries(miss).sort((a, b) => b[1] - a[1]).slice(0, 20);
+  const idle = st.filter(s => s.active && (!s.lastSeen || data.now - s.lastSeen > 3 * 864e5));
+  const avg = week.length ? Math.round(week.reduce((n, q) => n + q.correct / (q.total || 1), 0) / week.length * 100) : 0;
+  const th = (k, t) => `<th onclick="sortBy('${k}')">${t}${sortKey === k ? (sortDir > 0 ? " ▲" : " ▼") : ""}</th>`;
+  root.innerHTML = `<header><h1>SAT Vocab — 老師總覽</h1>
+    <select onchange="cls=this.value;render()"><option value="">全部班級</option>${classes.map(c => `<option ${c === cls ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>
+    <button onclick="load(sessionStorage.getItem('tpw'))">重新整理</button></header><main>
+    <div class="cards"><div><b>${st.filter(s => s.active).length}</b>啟用中的學生</div><div><b>${week.length}</b>近 7 天測驗次數</div><div><b>${avg}%</b>近 7 天平均答對率</div><div><b class="${idle.length ? "warn" : "ok"}">${idle.length}</b>超過 3 天沒開 app</div></div>
+    <section><h2>學生進度（點欄位名稱可排序）</h2><table><tr>${th("name", "姓名")}${th("cls", "班級")}<th>代碼</th>${th("lastSeen", "上次使用")}${th("streak", "連續天數")}${th("known", "已會")}${th("l1", "不會1")}${th("l2", "不會2")}${th("l3", "不會3")}${th("quizCount", "測驗次數")}<th>裝置</th><th>狀態</th></tr>
+      ${st.map(s => `<tr><td>${esc(s.name)}</td><td>${esc(s.cls)}</td><td>${esc(s.code)}</td><td class="${s.active && (!s.lastSeen || data.now - s.lastSeen > 3 * 864e5) ? "warn" : ""}">${ago(s.lastSeen)}</td><td>${s.streak}</td><td>${s.known}</td><td>${s.l1}</td><td>${s.l2}</td><td>${s.l3}</td><td>${s.quizCount}</td><td>${s.devices}</td><td class="${s.active ? "ok" : "off"}">${s.active ? "啟用" : "停用"}</td></tr>`).join("")}</table></section>
+    <section class="missed"><h2>最常錯的 20 個字</h2>${top.length ? top.map(([w, n]) => `<span>${esc(w)} ×${n}</span>`).join("") : "尚無資料"}</section>
+    <section><h2>最近的測驗（最多 200 筆）</h2><table><tr><th>時間</th><th>姓名</th><th>範圍</th><th>方式</th><th>分數</th><th>錯題</th></tr>
+      ${qz.slice(0, 200).map(q => `<tr><td>${fmt(q.ts)}</td><td>${esc(q.name)}</td><td>${esc(q.bank)}</td><td>${esc(q.mode)}</td><td>${q.correct} / ${q.total}</td><td class="w">${esc(q.wrong)}</td></tr>`).join("")}</table></section>
+    <p style="color:#6b7686;font-size:13px">新增或停用學生：到 Google 試算表「SAT Vocab App」的 Students 分頁。把 Active 改成 FALSE 就會停用；清空 Devices 欄可讓學生換新手機登入。</p></main>`;
+}
+function sortBy(k) { if (sortKey === k) sortDir = -sortDir; else { sortKey = k; sortDir = k === "name" || k === "cls" ? 1 : -1; } render(); }
+const saved = sessionStorage.getItem("tpw"); if (saved && API) load(saved); else loginView();
+</script>
+</body>
+</html>
