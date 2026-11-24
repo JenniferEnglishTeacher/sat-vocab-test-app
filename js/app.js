@@ -11,7 +11,7 @@ const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&a
 const today = () => Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5);
 const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const LV = ["已經會了", "不會 1", "不會 2", "不會 3"], LVHINT = ["", "有點不熟", "不熟", "完全不會"];
-const MODES = { ez: "看英文選中文", cz: "看例句選單字", sp: "聽發音拼字", mix: "混合題型" };
+const MODES = { ed: "看英文選英文解釋", cz: "看例句選單字", ez: "看英文選中文", sp: "聽發音拼字", mix: "混合題型" };
 const REVIEW_GAPS = [3, 7, 14, 30];
 const DF = ["", "基礎", "中階", "進階", "挑戰"], DFHINT = ["", "較常見的字，先拿下", "SAT 核心字", "較少見，需要多看幾次", "最難，行有餘力再攻"], SETSIZE = 20;
 
@@ -157,7 +157,12 @@ VIEWS.home = () => {
   const p = pools(), d = day(), goal = M.set.goal, pct = Math.min(100, Math.round(d.c / goal * 100));
   const row = (label, list, key, cls) => list.length ? `<div class="rrow ${cls}"><div><b>${label}</b><small>${list.length} 個字</small></div>
       <button class="chip" data-act="deck" data-src="${key}">字卡</button><button class="chip solid" data-act="quizFrom" data-src="${key}">測驗</button></div>` : "";
-  const rows = row("上次錯題", p.lw, "lw", "r0") + row("到期複習（已會的字）", p.due, "due", "rd") + row("不會 3 · 完全不會", p.l3, "l3", "r3") + row("不會 2 · 不熟", p.l2, "l2", "r2") + row("不會 1 · 有點不熟", p.l1, "l1", "r1");
+  const zone = (label, n, key, cls, sub) => n ? `<button class="rrow zr ${cls}" data-act="rlist" data-src="${key}"><div><b>${label}</b><small>${sub || n + " 個字"}</small></div><i>›</i></button>` : "";
+  const nmix = p.l3.length + p.l2.length + p.l1.length, hw = M.hist.filter(h => h.wrong.length).length;
+  const rows = row("上次錯題", p.lw, "lw", "r0") + row("到期複習（已會的字）", p.due, "due", "rd")
+    + ([p.l3, p.l2, p.l1].filter(x => x.length).length > 1 ? zone("不會 1／2／3 混合", nmix, "lmix", "rm", `${nmix} 個字 · 完全不會的字考最多次`) : "")
+    + zone("不會 3 · 完全不會", p.l3.length, "l3", "r3") + zone("不會 2 · 不熟", p.l2.length, "l2", "r2") + zone("不會 1 · 有點不熟", p.l1.length, "l1", "r1")
+    + (hw ? `<button class="rrow zr rh" data-act="pickhist"><div><b>跨次錯題本</b><small>勾選多次測驗，把錯題合在一起考</small></div><i>›</i></button>` : "");
   const last = M.last && bank(M.last.b) && unitOf(M.last.b, M.last.u);
   app.innerHTML = `<div class="page">
     <div class="hello"><div><small>${esc(auth.cls || "SAT")}</small><h2>Hi, ${esc(auth.name)}</h2></div>
@@ -181,7 +186,7 @@ VIEWS.bank = () => {
   app.innerHTML = head(B.name, B.zh) + `<div class="page"><div class="units">${B.units.map(u => { const t = tally(u.c); return `<div class="urow">
       <button class="umain" data-act="unit" data-b="${B.id}" data-u="${u.n}"><b>${B.ul} ${u.n}</b><span>${esc(u.t || "")}${u.tz ? " " + esc(u.tz) : ""}</span>${bar(t)}
       <small>${t.n} 字 · 已會 ${t.known} · 不會 ${t.l1 + t.l2 + t.l3}</small></button>
-      <button class="chip solid" data-act="quizFrom" data-src="u:${B.id}:${u.n}">測驗</button></div>`; }).join("")}</div></div>`;
+      <div class="uact"><button class="chip" data-act="rlist" data-src="u:${B.id}:${u.n}">總表</button><button class="chip solid" data-act="quizFrom" data-src="u:${B.id}:${u.n}">測驗</button></div></div>`; }).join("")}</div></div>`;
 };
 
 /* ---------- suggested-difficulty zone: ready-made sets of 20, no self-sorting needed ---------- */
@@ -220,9 +225,11 @@ VIEWS.cards = () => {
   if (deck.unitRef) { M.last = { b: c.bank, u: c.unit, i: deck.i }; saveM(); }
   if (deck.done) {
     const t = tally(deck.cards);
-    app.innerHTML = head(deck.title, "完成") + `<div class="page center"><div class="big">🎉</div><h2>這一輪看完了</h2>
-      <p>已會 ${t.known} · 不會 ${t.l1 + t.l2 + t.l3} · 未分類 ${t.new}</p>${bar(t)}
-      <button class="btn primary" data-act="quizDeck">測驗這一輪「不會」的字</button>
+    const nq = uniq(deck.cards).filter(c => lv(c.k) > 0).length;
+    app.innerHTML = head(deck.title, "完成") + `<div class="page"><div class="center"><div class="big">🎉</div><h2>這一輪看完了</h2>
+      <p>已會 ${t.known} · 不會 ${t.l1 + t.l2 + t.l3} · 未分類 ${t.new}</p>${bar(t)}</div>
+      <h3>本輪單字總表</h3>${revBar(uniq(deck.cards).length)}<div class="wlist">${uniq(deck.cards).map(c => trow(c.k, false, c.bank)).join("")}</div>
+      <h3>測驗這一輪「不會」的字（${nq}）</h3>${nq ? modePick() + `<button class="btn primary" data-act="quizDeck">開始測驗</button>` : `<p class="muted">這一輪沒有標「不會」的字。</p>`}
       <button class="btn" data-act="again">再看一次</button><button class="btn" data-act="back">返回</button></div>`;
     sync(); return;
   }
@@ -251,18 +258,24 @@ function move(d) {
   if (n < 0) return; if (n >= deck.cards.length) { deck.done = true; return render(); }
   deck.i = n; render(); $("#card") && ($("#card").scrollTop = 0);
 }
+function setLevel(k, l) {
+  const old = W[k];
+  W[k] = l === 0 ? [0, 0, 0, today() + REVIEW_GAPS[0], old ? old[4] : 0, today(), old ? old[6] || 0 : 0] : [l, 0, 0, 0, old ? old[4] : 0, today(), old ? old[6] || 0 : 0];
+  saveW();
+}
 function rate(l) {
   const c = deck.cards[deck.i], old = W[c.k], first = !old || old[5] !== today();
-  W[c.k] = l === 0 ? [0, 0, 0, today() + REVIEW_GAPS[0], old ? old[4] : 0, today(), old ? old[6] || 0 : 0] : [l, 0, 0, 0, old ? old[4] : 0, today(), old ? old[6] || 0 : 0];
-  if (first) day().c++;
-  saveW(); move(1);
+  setLevel(c.k, l); if (first) { day().c++; saveM(); }
+  move(1);
 }
+const LVBTN = [[3, "完全不會 3"], [2, "不熟 2"], [1, "有點不熟 1"], [0, "已經會了"]];
 function popWord(k, say) {
   const c = lookup(k, view === "quiz" && quiz ? quiz.qs[quiz.i].c.bank : deck && deck.cards[deck.i] ? deck.cards[deck.i].bank : "h"); if (!c) return;
   hush(); speak(say || c.w);
   sheet(`<div class="popw"><h2>${esc(c.w)} <button class="spk" data-act="say" data-t="${esc(c.w)}">🔊</button></h2><small>${esc(c.p)} · ${esc(bank(c.bank).name)} ${bank(c.bank).ul} ${c.unit}${lv(c.k) >= 0 ? " · " + LV[lv(c.k)] : ""}</small>
     <p class="def">${esc(c.d)}</p><p class="zh">${esc(c.z)}</p>
-    <button class="btn primary" data-act="openWord" data-w="${esc(c.k)}">開啟這張字卡</button><button class="btn" data-act="closeSheet">關閉</button></div>`);
+    <div class="addlv"><small>新增至</small><div>${LVBTN.map(([n, t]) => `<button class="r${n} ${lv(c.k) === n ? "on" : ""}" data-act="setlv" data-w="${esc(c.k)}" data-l="${n}">${t}</button>`).join("")}</div></div>
+    <button class="btn primary" data-act="openWord" data-w="${esc(c.k)}">開啟這張字卡</button></div>`);
 }
 let touch = null;
 app.addEventListener("touchstart", e => { if (view === "cards") touch = [e.touches[0].clientX, e.touches[0].clientY]; }, { passive: true });
@@ -278,7 +291,9 @@ function cardsFor(src) {
   if (src === "all") return [uniq(CARDS), "全部字庫"];
   if (src === "lw") return [pick(p.lw), "上次錯題"];
   if (src === "due") return [pick(p.due), "到期複習"];
-  if (/^l[123]$/.test(src)) return [pick(p[src]), LV[+src[1]]];
+  if (/^l[123]$/.test(src)) return [pick(p[src]), `${LV[+src[1]]} · ${LVHINT[+src[1]]}`];
+  if (src === "lmix") return [pick([...p.l3, ...p.l2, ...p.l1]), "不會 1／2／3 混合"];
+  if (src === "hp") return [pick(uniqK(M.hist.filter(h => hpick.has(h.ts)).flatMap(h => h.wrong))), "勾選的測驗錯題"];
   if (src === "star") return [pick(Object.keys(M.star)), "星號單字"];
   if (src === "wrong") return [uniq(CARDS).filter(c => W[c.k] && W[c.k][4] > 0).sort((a, b) => wrongSort === "rate" ? missRate(b.k) - missRate(a.k) || W[b.k][4] - W[a.k][4] : W[b.k][4] - W[a.k][4] || missRate(b.k) - missRate(a.k)), "全部錯題"];
   if (src === "known") return [uniq(CARDS).filter(c => lv(c.k) === 0), "已經會了"];
@@ -288,25 +303,27 @@ function cardsFor(src) {
   if (m[0] === "u") { const B = bank(m[1]), u = unitOf(m[1], +m[2]); return [u.c, `${B.name} · ${B.ul} ${u.n}`]; }
   return [[], ""];
 }
-let setup = { src: "all", lv: { 1: true, 2: true, 3: true }, mode: "ez", n: 10 };
+const uniqK = ks => [...new Set(ks)];
+let hpick = new Set();                              // quiz records (by timestamp) picked for a merged mistake quiz
+let setup = { src: "all", lv: { 1: true, 2: true, 3: true }, mode: "ed", n: 10 };
 function quizPool() {
   const [cards] = cardsFor(setup.src);
-  if (["lw", "due", "known"].includes(setup.src)) return cards;       // these lists are quizzed as they are
+  if (["lw", "due", "known", "hp"].includes(setup.src)) return cards;       // these lists are quizzed as they are
   if (setup.src.startsWith("d:")) return cards.filter(c => lv(c.k) !== 0);   // difficulty zones: everything not yet marked known
   return cards.filter(c => { const l = lv(c.k); return l > 0 && setup.lv[l]; });
 }
 VIEWS.quizsetup = () => {
   if (arg.src) { setup.src = arg.src; arg = {}; }
-  const pool = quizPool(), fixed = ["lw", "due", "known"].includes(setup.src) || setup.src.startsWith("d:");
+  const pool = quizPool(), fixed = ["lw", "due", "known", "hp"].includes(setup.src) || setup.src.startsWith("d:");
   const opt = (v, t) => `<option value="${v}" ${setup.src === v ? "selected" : ""}>${esc(t)}</option>`;
   const cur = cardsFor(setup.src)[1];
   app.innerHTML = `<div class="page"><h2>測驗</h2><p class="muted">字庫範圍只考你標記「不會」的字；難度區會考所有還沒標「已經會了」的字。不會的等級越高，越常出現。</p>
     <label>範圍</label><select id="qsrc">${opt("all", "全部字庫")}${BANKS.map(B => opt("b:" + B.id, B.name)).join("")}
       ${[1, 2, 3, 4].map(L => opt("d:" + L, `難度 ${L} · ${DF[L]}`)).join("")}
       ${opt("lw", "上次錯題")}${opt("due", "到期複習（已會的字）")}${opt("wrong", "全部錯題")}${opt("star", "星號單字")}
-      ${/^(u:|d:\d+:)/.test(setup.src) ? opt(setup.src, cur) : ""}</select>
+      ${/^(u:|d:\d+:|hp$|lmix$|l[123]$)/.test(setup.src) ? opt(setup.src, cur) : ""}</select>
     ${fixed ? "" : `<label>難度</label><div class="seg multi">${[1, 2, 3].map(n => `<button class="${setup.lv[n] ? "on" : ""}" data-act="qlv" data-l="${n}">不會 ${n}</button>`).join("")}</div>`}
-    <label>考試方式</label><div class="modes">${Object.entries(MODES).map(([k, t]) => `<button class="${setup.mode === k ? "on" : ""}" data-act="qmode" data-m="${k}">${t}</button>`).join("")}</div>
+    ${modePick()}
     <label>題數</label><div class="seg">${[10, 20, 30, 0].map(n => `<button class="${setup.n === n ? "on" : ""}" data-act="qn" data-n="${n}">${n || "全部"}</button>`).join("")}</div>
     <div class="poolinfo ${pool.length ? "" : "empty"}">${pool.length ? `符合的單字：<b>${pool.length}</b> 個` : (fixed ? "這個範圍目前沒有可以考的字。" : "這個範圍還沒有「不會」的字。先去看字卡把單字分類，或改選「難度」範圍直接考。")}</div>
     <button class="btn primary" data-act="qstart" ${pool.length ? "" : "disabled"}>開始測驗</button></div>`;
@@ -326,7 +343,8 @@ function distractors(c, field) {
   return out;
 }
 function makeQ(c, mode) {
-  if (mode === "mix") mode = shuffle(["ez", "cz", "sp"])[0];
+  if (mode === "mix") mode = shuffle(["ed", "ed", "cz", "cz", "ez", "sp"])[0];
+  if (mode === "ed" && !c.d) mode = "ez";
   if (mode === "cz" && !c.b) mode = "ez";
   if (mode === "sp" && /\s/.test(c.w)) mode = "ez";
   if (mode === "sp") return { c, mode };
@@ -338,17 +356,35 @@ function makeQ(c, mode) {
     pairs = shuffle(pairs);
     return { c, mode, opts: pairs.map(x => x[0]), oc: pairs.map(x => x[1]), ans: c.ao || c.w };
   }
-  const pairs = shuffle([[c.z, c], ...distractors(c, "z").map(x => [x.z, x])]);
-  return { c, mode, opts: pairs.map(x => x[0]), oc: pairs.map(x => x[1]), ans: c.z };
+  const f = mode === "ed" ? "d" : "z";             // ed: pick the English definition (as on the real SAT); ez: pick the Chinese
+  const pairs = shuffle([[c[f], c], ...distractors(c, f).map(x => [x[f], x])]);
+  return { c, mode, opts: pairs.map(x => x[0]), oc: pairs.map(x => x[1]), ans: c[f] };
 }
 let quiz = null;
-function startQuiz(cards, mode, n, label, redo) {
-  let order = weightedOrder(cards); const want = n || order.length;
-  if (order.length > want) order = order.slice(0, want);
-  else if (!redo && n && order.length < want && order.length >= 4) {          // short list: harder words come back a second time
-    const extra = weightedOrder(cards.filter(c => lv(c.k) >= 2)).slice(0, want - order.length); order = order.concat(extra);
+function spreadOrder(cards, n) {
+  const times = c => Math.max(1, Math.min(3, lv(c.k)));
+  let words = weightedOrder(cards);
+  if (n) { let tot = 0; words = words.filter(c => { if (tot && tot + times(c) > n) return false; tot += times(c); return true; }); }
+  // every copy gets a slot spread evenly over the quiz, so the same word never comes back right away
+  const seq = words.flatMap(c => Array.from({ length: times(c) }, (_, j) => [c, (j + .15 + Math.random() * .7) / times(c)])).sort((a, b) => a[1] - b[1]).map(x => x[0]);
+  for (let i = 1; i < seq.length; i++) if (seq[i].k === seq[i - 1].k) {
+    const j = seq.findIndex((x, m) => m > i && x.k !== seq[i].k && (m + 1 >= seq.length || seq[m + 1].k !== seq[i].k) && seq[m - 1].k !== seq[i].k);
+    if (j > 0) [seq[i], seq[j]] = [seq[j], seq[i]];
   }
-  quiz = { label, mode, qs: order.map(c => makeQ(c, mode)), i: 0, right: 0, wrong: [], t0: Date.now(), cards, picked: null, unlocked: 0 };
+  return seq;
+}
+function startQuiz(cards, mode, n, label, redo, rep) {
+  let order;
+  if (rep) order = spreadOrder(cards, n);
+  else {
+    order = weightedOrder(cards); const want = n || order.length;
+    if (order.length > want) order = order.slice(0, want);
+    else if (!redo && n && order.length < want && order.length >= 4) {          // short list: harder words come back a second time
+      const extra = weightedOrder(cards.filter(c => lv(c.k) >= 2)).slice(0, want - order.length); order = order.concat(extra);
+    }
+  }
+  if (!order.length) return toast("沒有可以考的字");
+  quiz = { label, mode, n, rep, qs: order.map(c => makeQ(c, mode)), i: 0, right: 0, wrong: [], t0: Date.now(), cards, picked: null, unlocked: 0 };
   go("quiz");
 }
 VIEWS.quiz = () => {
@@ -362,16 +398,16 @@ VIEWS.quiz = () => {
     const stem = q.mode === "cz" ? `<p class="stem">${richText(c.b, c.bh, "").replace(/_{3,}/g, '<u class="blank"></u>')}</p>${c.bh && !done ? `<p class="muted hint">藍色的字可以點開看意思</p>` : ""}` : `<div class="qword"><h1>${esc(c.w)}</h1><button class="spk" data-act="say" data-t="${esc(c.w)}">🔊</button><small>${esc(c.p)}</small></div>`;
     // after answering, every option shows its meaning, a speaker and a link to its flashcard
     const row = (o, i) => { const x = q.oc[i], cls = o === q.ans ? "ok" : o === quiz.picked ? "no" : "";
-      return `<div class="opt ${cls}"><i>${"ABCD"[i]}</i><div class="ot"><b>${esc(o)}</b>${x ? `<small>${q.mode === "cz" ? `${esc(x.p)} ${esc(x.z)}` : `${esc(x.w)} <em>${esc(x.p)}</em>`}</small>` : ""}</div>
+      return `<div class="opt ${cls}"><i>${"ABCD"[i]}</i><div class="ot"><b>${esc(o)}</b>${x ? `<small>${q.mode === "cz" ? `${esc(x.p)} ${esc(x.z)}` : q.mode === "ed" ? `${esc(x.w)} <em>${esc(x.p)}</em> ${esc(x.z)}` : `${esc(x.w)} <em>${esc(x.p)}</em>`}</small>` : ""}</div>
         ${x ? `<button class="spk" data-act="say" data-t="${esc(x.w)}">🔊</button><button class="chip" data-act="pop" data-w="${esc(x.k)}">字卡</button>` : ""}</div>`; };
-    body = stem + `<div class="opts">${done ? q.opts.map(row).join("") : q.opts.map((o, i) => `<button data-act="pick" data-i="${i}"><i>${"ABCD"[i]}</i>${esc(o)}</button>`).join("")}</div>`;
+    body = stem + `<div class="opts ${q.mode === "ed" ? "en" : ""}">${done ? q.opts.map(row).join("") : q.opts.map((o, i) => `<button data-act="pick" data-i="${i}"><i>${"ABCD"[i]}</i>${esc(o)}</button>`).join("")}</div>`;
   }
   const ok = done && quiz.lastOk;
   app.innerHTML = head(quiz.label, `${quiz.i + 1} / ${quiz.qs.length} · ${MODES[q.mode]}`, `<span class="score">✓ ${quiz.right}</span>`) +
     `<div class="prog"><b style="width:${(quiz.i + (done ? 1 : 0)) / quiz.qs.length * 100}%"></b></div><div class="page quiz">${body}
     ${done ? `<div class="fb ${ok ? "ok" : "no"}"><b>${ok ? "答對了！" : "答錯了"}</b><p><b>${esc(c.w)}</b> <small>${esc(c.p)}</small> ${esc(c.z)}</p><p class="def">${esc(c.d)}</p>
       <p class="muted">${esc(quiz.note || "")}</p></div><button class="btn primary" data-act="qnext">${quiz.i + 1 < quiz.qs.length ? "下一題" : "看結果"}</button>` : ""}</div>`;
-  if (!done) { if (q.mode === "sp") { hush(); speak(c.w); const el = $("#spin"); el && el.focus(); } else if (q.mode === "ez" && M.set.autoWord) { hush(); speak(c.w); } }
+  if (!done) { if (q.mode === "sp") { hush(); speak(c.w); const el = $("#spin"); el && el.focus(); } else if ((q.mode === "ez" || q.mode === "ed") && M.set.autoWord) { hush(); speak(c.w); } }
 };
 function answer(val, ok) {
   const q = quiz.qs[quiz.i], k = q.c.k, fresh = !W[k], s = W[k] || [1, 0, 0, 0, 0, today()];
@@ -402,18 +438,57 @@ VIEWS.result = () => {
     ${quiz.wrong.length ? `<h3>這次的錯題</h3><div class="wlist">${quiz.wrong.map(wrow).join("")}</div>` : ""}</div>`;
 };
 const tries = k => (W[k] ? Math.max(W[k][6] || 0, W[k][4]) : 0), missRate = k => (tries(k) ? W[k][4] / tries(k) : 0);
-const wrow = k => { const c = lookup(k); if (!c) return ""; const l = lv(k), x = W[k] ? W[k][4] : 0, n = tries(k); return `<button class="wrow" data-act="openWord" data-w="${esc(k)}"><b>${esc(c.w)}</b><span>${esc(c.z)}</span>${x ? `<em>✗${x}/${n} · ${Math.round(x / n * 100)}%</em>` : ""}${l >= 0 ? `<i class="t${l}">${l ? "L" + l : "✓"}</i>` : ""}</button>`; };
+// One row of a word table: the meaning stays hidden until the student taps, so they can think first.
+const trow = (k, stats, prefer) => { const c = lookup(k, prefer); if (!c) return ""; const l = lv(k), x = W[k] ? W[k][4] : 0, n = tries(k);
+  return `<div class="trow ${l >= 0 ? "t" + l : ""}"><button class="th" data-act="rev"><b>${esc(c.w)}</b><small>${esc(c.p)}</small>
+    ${stats && x ? `<em>✗${x}/${n} · ${Math.round(x / n * 100)}%</em>` : ""}${l >= 0 ? `<i class="t${l}">${l ? LVHINT[l] : "已會"}</i>` : ""}<span class="tv">看意思</span></button>
+    <div class="tb"><p class="tdef">${esc(c.d)}</p><p class="tzh">${esc(c.z)}</p><div class="ta"><button class="spk" data-act="say" data-t="${esc(c.w)}">🔊</button><button class="chip" data-act="openWord" data-w="${esc(k)}">開字卡</button></div></div></div>`; };
+const wrow = k => trow(k, true);
+const revBar = n => `<div class="revbar"><span>${n} 個字 · 先想意思，再點一下對答案</span><button class="chip" data-act="revAll">全部顯示</button></div>`;
+const modePick = () => `<label>考試方式</label><div class="modes">${Object.entries(MODES).map(([k, t]) => `<button class="${setup.mode === k ? "on" : ""}" data-act="qmode" data-m="${k}">${t}</button>`).join("")}</div>`;
 
 /* ---------- word lists (mistake book) ---------- */
 let listTab = "lw", wrongSort = "count";
 VIEWS.words = () => {
   const tabs = [["lw", "上次錯題"], ["wrong", "全部錯題"], ["l3", "不會 3"], ["l2", "不會 2"], ["l1", "不會 1"], ["due", "到期複習"], ["star", "★ 星號"], ["known", "已會"]];
   const [cards] = cardsFor(listTab);
-  app.innerHTML = `<div class="page"><h2>錯題本與單字清單</h2><div class="tabs">${tabs.map(([k, t]) => `<button class="${listTab === k ? "on" : ""}" data-act="ltab" data-t="${k}">${t}</button>`).join("")}</div>
+  app.innerHTML = `<div class="page"><h2>錯題本與單字清單</h2><button class="btn hpbtn" data-act="pickhist">📋 跨次錯題本：勾選多次測驗，錯題合併考</button><div class="tabs">${tabs.map(([k, t]) => `<button class="${listTab === k ? "on" : ""}" data-act="ltab" data-t="${k}">${t}</button>`).join("")}</div>
     ${listTab === "wrong" && cards.length ? `<div class="seg sortseg"><button class="${wrongSort === "count" ? "on" : ""}" data-act="wsort" data-s="count">依錯誤次數排序</button><button class="${wrongSort === "rate" ? "on" : ""}" data-act="wsort" data-s="rate">依錯誤比例排序</button></div><p class="muted">✗錯誤次數 / 考過次數 · 錯誤比例。最常錯的排最上面。</p>` : ""}
     ${cards.length ? `<div class="two"><button class="btn" data-act="deck" data-src="${listTab}">看字卡（${cards.length}）</button><button class="btn primary" data-act="quizFrom" data-src="${listTab}">測驗</button></div>
       <div class="two"><button class="btn" data-act="mail" data-src="${listTab}">📧 寄到我的 Email</button><button class="btn" data-act="csv" data-src="${listTab}">⬇️ 下載檔案</button></div>
-      <div class="wlist">${cards.slice(0, 300).map(c => wrow(c.k)).join("")}</div>${cards.length > 300 ? `<p class="muted">只顯示前 300 個</p>` : ""}` : `<div class="tip">這裡目前沒有單字。</div>`}</div>`;
+      ${revBar(Math.min(cards.length, 300))}<div class="wlist">${cards.slice(0, 300).map(c => wrow(c.k)).join("")}</div>${cards.length > 300 ? `<p class="muted">只顯示前 300 個</p>` : ""}` : `<div class="tip">這裡目前沒有單字。</div>`}</div>`;
+};
+
+/* ---------- word table (總表): look over every word first, then quiz ---------- */
+let rnum = 0;
+VIEWS.rlist = () => {
+  const src = arg.src, [cards, label] = cardsFor(src), isUnit = /^u:/.test(src), mix = src === "lmix";
+  const list = isUnit ? uniq(cards) : uniq(cards).sort((a, b) => lv(b.k) - lv(a.k) || (W[b.k] ? W[b.k][4] : 0) - (W[a.k] ? W[a.k][4] : 0));
+  const pool = isUnit ? list.filter(c => lv(c.k) > 0) : list;
+  const GN = { 3: "不會 3 · 完全不會", 2: "不會 2 · 不熟", 1: "不會 1 · 有點不熟", 0: "已經會了", "-1": "還沒分類" };
+  const groups = isUnit ? [[null, list]] : [3, 2, 1, 0, -1].map(L => [L, list.filter(c => Math.max(lv(c.k), -1) === L)]).filter(g => g[1].length);
+  const prefer = isUnit ? src.split(":")[1] : undefined;
+  const qs = mix ? pool.reduce((t, c) => t + Math.max(1, Math.min(3, lv(c.k))), 0) : pool.length;
+  app.innerHTML = head(label, isUnit ? "單元總表" : "由完全不會排到有點不熟") + `<div class="page">
+    ${list.length ? revBar(list.length) + groups.map(([L, cs]) => `${L == null ? "" : `<div class="lgrp g${L}">${GN[L]}（${cs.length}）</div>`}<div class="wlist">${cs.map(c => trow(c.k, !isUnit, prefer)).join("")}</div>`).join("")
+      + `<button class="btn" data-act="deck" data-src="${esc(src)}">看字卡（${list.length}）</button>` : `<div class="tip">這裡目前沒有單字。</div>`}
+    ${pool.length ? `<h3>${isUnit ? `測驗這單元「不會」的字（${pool.length}）` : "看完了，開始測驗"}</h3>${modePick()}
+      ${mix ? `<p class="muted">完全不會 3 的字考 3 次、不熟 2 考 2 次、有點不熟 1 考 1 次，會分散出現。全部共 ${qs} 題。</p>` : ""}
+      <label>${mix ? "題數" : "考幾個字"}</label><div class="seg" id="rnum">${[20, 40, 0].map(n => `<button class="${rnum === n ? "on" : ""}" data-act="rnum" data-n="${n}">${n || `全部（${qs}）`}</button>`).join("")}</div>
+      <button class="btn primary" data-act="rstart" data-src="${esc(src)}">開始測驗</button>`
+      : isUnit && list.length ? `<p class="muted">這單元還沒有標「不會」的字，先看字卡把字分類。</p>` : ""}</div>`;
+};
+
+/* ---------- cross-quiz mistake book: tick several quiz records, quiz all their mistakes together ---------- */
+VIEWS.pickhist = () => {
+  const fmt = ts => { const d = new Date(ts); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+  const hs = M.hist.filter(h => h.wrong.length), n = uniqK(hs.filter(h => hpick.has(h.ts)).flatMap(h => h.wrong)).length;
+  app.innerHTML = head("跨次錯題本", "勾選要合併的測驗") + `<div class="page">
+    ${hs.length ? `<div class="two"><button class="btn" data-act="hpall">全選</button><button class="btn" data-act="hpnone">全部取消</button></div>
+      <div class="hlist">${hs.map(h => `<button class="hpk ${hpick.has(h.ts) ? "on" : ""}" data-act="hpk" data-ts="${h.ts}"><span class="cb">${hpick.has(h.ts) ? "✓" : ""}</span>
+        <div><b>${esc(h.bank)}</b><small>${fmt(h.ts)} · ${esc(h.mode)} · ${h.correct} / ${h.total}</small></div><em>錯 ${h.wrong.length}</em></button>`).join("")}</div>
+      <div class="hpbar"><span>已選 ${hpick.size} 次測驗 · 共 <b>${n}</b> 個錯字（重複的只算一次）</span>
+        <button class="btn primary" data-act="rlist" data-src="hp" ${n ? "" : "disabled"}>看總表再測驗</button></div>` : `<div class="tip">還沒有答錯過的測驗紀錄。</div>`}</div>`;
 };
 
 /* ---------- history ---------- */
@@ -424,7 +499,7 @@ VIEWS.history = () => {
     <div class="stats"><div><b>${streak()}</b><small>連續天數</small></div><div><b>${t.known}</b><small>已會</small></div><div><b>${t.l1 + t.l2 + t.l3}</b><small>不會</small></div><div><b>${M.hist.length}</b><small>測驗次數</small></div></div>
     ${bar(t)}<p class="muted">全部 ${t.n} 字 · 未分類 ${t.new}</p>
     <h3>最近 14 天</h3><div class="cal">${days.map(d => { const x = M.days[d], dt = new Date(d * 864e5); return `<div class="${x && (x.c || x.q) ? "on" : ""}"><small>${dt.getUTCDate()}</small><b>${x ? x.c : ""}</b></div>`; }).join("")}</div>
-    <h3>測驗紀錄</h3>${M.hist.length ? M.hist.map((h, i) => `<button class="hrow" data-act="hist" data-i="${i}"><div><b>${esc(h.bank)}</b><small>${fmt(h.ts)} · ${esc(h.mode)}</small></div>
+    <h3>測驗紀錄</h3>${M.hist.some(h => h.wrong.length) ? `<button class="btn hpbtn" data-act="pickhist">📋 勾選多次測驗，錯題合併考</button>` : ""}${M.hist.length ? M.hist.map((h, i) => `<button class="hrow" data-act="hist" data-i="${i}"><div><b>${esc(h.bank)}</b><small>${fmt(h.ts)} · ${esc(h.mode)}</small></div>
       <span class="${h.correct === h.total ? "full" : ""}">${h.correct} / ${h.total}</span></button>`).join("") : `<div class="tip">還沒有測驗紀錄。</div>`}</div>`;
 };
 
@@ -541,17 +616,28 @@ const ACT = {
   star: () => { const k = deck.cards[deck.i].k; if (M.star[k]) delete M.star[k]; else M.star[k] = 1; M.dirty = true; saveM(); render(); },
   rate: d => rate(+d.l), prev: () => move(-1), next: () => move(1),
   again: () => { deck.done = false; deck.i = 0; render(); },
+  rlist: d => { closeSheet(); go("rlist", { src: d.src }); },
+  pickhist: () => go("pickhist"),
+  hpk: d => { const t = +d.ts; if (hpick.has(t)) hpick.delete(t); else hpick.add(t); render(); },
+  hpall: () => { M.hist.filter(h => h.wrong.length).forEach(h => hpick.add(h.ts)); render(); },
+  hpnone: () => { hpick.clear(); render(); },
+  rev: (d, el) => el.closest(".trow").classList.toggle("open"),
+  revAll: (d, el) => { const rows = [...app.querySelectorAll(".trow")], open = !rows.every(r => r.classList.contains("open")); rows.forEach(r => r.classList.toggle("open", open)); app.querySelectorAll("[data-act=revAll]").forEach(b => b.textContent = open ? "全部隱藏" : "全部顯示"); },
+  rnum: d => { rnum = +d.n; app.querySelectorAll("#rnum button").forEach(b => b.classList.toggle("on", +b.dataset.n === rnum)); },
+  rstart: d => { const [cards, label] = cardsFor(d.src), isUnit = /^u:/.test(d.src); setup.src = d.src;
+    startQuiz(isUnit ? uniq(cards).filter(c => lv(c.k) > 0) : uniq(cards), setup.mode, rnum, label, false, d.src === "lmix"); },
+  setlv: d => { setLevel(d.w, +d.l); closeSheet(); const c = lookup(d.w); toast(`${c ? c.w : d.w} → ${+d.l ? `不會 ${d.l} · ${LVHINT[+d.l]}` : "已經會了"}`); if (/^(rlist|words|home)$/.test(view)) render(); },
   quizDeck: () => { const cards = uniq(deck.cards).filter(c => lv(c.k) > 0); if (!cards.length) return toast("這一輪沒有「不會」的字"); setup.src = deck.unitRef ? `u:${deck.cards[0].bank}:${deck.cards[0].unit}` : setup.src; startQuiz(cards, setup.mode, 0, deck.unitRef ? `${bank(deck.cards[0].bank).name} · ${deck.title}` : deck.title); },
   pop: d => popWord(d.w, d.say),
   openWord: d => { const c = lookup(d.w); if (!c) return; closeSheet(); openDeck(c.w, [c]); },
   qlv: d => { setup.lv[d.l] = !setup.lv[d.l]; if (!setup.lv[1] && !setup.lv[2] && !setup.lv[3]) setup.lv[d.l] = true; render(); },
-  qmode: d => { setup.mode = d.m; render(); }, qn: d => { setup.n = +d.n; render(); },
-  qstart: () => { const pool = quizPool(); if (pool.length) startQuiz(pool, setup.mode, setup.n, cardsFor(setup.src)[1]); },
+  qmode: d => { setup.mode = d.m; if (view === "quizsetup") render(); else app.querySelectorAll(".modes button").forEach(b => b.classList.toggle("on", b.dataset.m === d.m)); }, qn: d => { setup.n = +d.n; render(); },
+  qstart: () => { const pool = quizPool(); if (pool.length) startQuiz(pool, setup.mode, setup.n, cardsFor(setup.src)[1], false, setup.src === "lmix"); },
   pick: d => { const q = quiz.qs[quiz.i]; if (quiz.picked == null) answer(q.opts[+d.i], q.opts[+d.i] === q.ans); },
   spell: () => { const v = $("#spin").value.trim(); if (!v) return; answer(v, v.toLowerCase() === quiz.qs[quiz.i].c.k); },
   qnext: () => { quiz.picked = null; if (++quiz.i >= quiz.qs.length) { quiz.i--; finishQuiz(); } else render(); },
   redo: () => startQuiz(quiz.wrong.map(k => lookup(k)).filter(Boolean), quiz.mode, 0, "重做錯題", true),
-  qagain: () => startQuiz(quiz.cards, quiz.mode, quiz.qs.length, quiz.label),
+  qagain: () => startQuiz(quiz.cards, quiz.mode, quiz.rep ? quiz.n : quiz.qs.length, quiz.label, false, quiz.rep),
   ltab: d => { listTab = d.t; render(); }, wsort: d => { wrongSort = d.s; render(); },
   hist: d => { const h = M.hist[+d.i]; sheet(`<div class="popw"><h2>${esc(h.bank)}</h2><small>${new Date(h.ts).toLocaleString("zh-TW")} · ${esc(h.mode)} · ${h.correct} / ${h.total}</small>
     ${h.wrong.length ? `<h3>錯題</h3><div class="wlist">${h.wrong.map(wrow).join("")}</div>` : `<p>全對 💯</p>`}<button class="btn" data-act="closeSheet">關閉</button></div>`); },
@@ -572,7 +658,7 @@ const ACT = {
 };
 document.addEventListener("click", e => {
   const n = e.target.closest("[data-go]"); if (n) { stack = []; return go(n.dataset.go); }
-  const a = e.target.closest("[data-act]"); if (a && ACT[a.dataset.act]) { e.preventDefault(); ACT[a.dataset.act](a.dataset); }
+  const a = e.target.closest("[data-act]"); if (a && ACT[a.dataset.act]) { e.preventDefault(); ACT[a.dataset.act](a.dataset, a); }
 });
 document.addEventListener("change", e => { if (e.target.id === "qsrc") { setup.src = e.target.value; render(); } });
 document.addEventListener("keydown", e => { if (e.key !== "Enter") return; if (e.target.id === "code") doLogin(); if (e.target.id === "spin") ACT.spell(); });
