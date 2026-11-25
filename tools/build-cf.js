@@ -1,7 +1,7 @@
 // Build the 易混淆字 (Confusables) word bank: data/c.bin, and add/refresh bank "c" in data/meta.json.
 // The other banks (b, h, m) are left untouched.
 // Usage: APP_KEY=<base64 32 bytes> node tools/build-cf.js <flashcard site folder> <bank version>
-// Source: the site's cf-unit1..24-data.js (made by tools/confusables/build.py in the site repo).
+// Source: the site's cf-unit1..N-data.js (made by tools/confusables/build.py in the site repo).
 const fs = require("fs"), path = require("path"), crypto = require("crypto");
 const SRC = process.argv[2], VER = process.argv[3];
 const KEY = Buffer.from(process.env.APP_KEY || "", "base64");
@@ -12,7 +12,7 @@ const clean = w => String(w || "").replace(/\s*\(.*?\)\s*/g, " ").trim();
 const key = w => clean(w).toLowerCase();
 
 // ---- headwords of the banks already in the app (same unit ranges as tools/build.js) ----
-const OTHER = [["m", "mk-unit", 30], ["h", "hot-unit", 92], ["b", "unit", 46]];
+const OTHER = [["m", "mk-unit", 30], ["h", "hot-unit", loadJs("hot-words.js").HOT_LESSON_COUNT || 92], ["b", "unit", 46]];
 const heads = { c: new Set() };
 for (const [id, pre, n] of OTHER) {
   heads[id] = new Set();
@@ -81,7 +81,7 @@ for (const u of units) {
   }
   outUnits.push({ n: u.n, t: u.title, tz: cards.slice(0, 3).map(c => c.w).join(" · ") + " …", c: cards });
 }
-const bankInfo = { id: "c", name: "易混淆字 Confusables", zh: "形近・字根誤導・熟字僻義・易混用法", ul: "Set" };
+const bankInfo = { id: "c", name: "易混淆字 Confusables", zh: "形近・字根誤導・熟字僻義・易混用法・字根形近", ul: "Set" };
 const json = Buffer.from(JSON.stringify(Object.assign({}, bankInfo, { units: outUnits })));
 const iv = crypto.randomBytes(12), ci = crypto.createCipheriv("aes-256-gcm", KEY, iv);
 const enc = Buffer.concat([iv, ci.update(json), ci.final(), ci.getAuthTag()]);
