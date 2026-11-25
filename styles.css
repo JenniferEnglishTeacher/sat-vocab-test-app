@@ -226,3 +226,4 @@ body.full .page.quiz,body.full .page.game{flex:1;overflow-y:auto}
 .hvbar .seg button.hv2.on { background: #6a1b9a; border-color: #6a1b9a; color: #fff; }
 .hvtag { font-style: normal; font-size: .72em; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; vertical-align: 2px; color: #fff; }
 .hvtag.hv1 { background: #2e7d32; } .hvtag.hv2 { background: #6a1b9a; }
+.chip.ustar{background:#c9a227;border-color:#c9a227;color:#fff}

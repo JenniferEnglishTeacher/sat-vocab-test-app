@@ -191,7 +191,7 @@ VIEWS.bank = () => {
   app.innerHTML = head(B.name, B.zh) + `<div class="page">${seg}<div class="units">${B.units.filter(u => hcards(u, L).length).map(u => { const cs = hcards(u, L), t = tally(cs); return `<div class="urow">
       <button class="umain" data-act="unit" data-b="${B.id}" data-u="${u.n}" data-lv="${L}"><b>${B.ul} ${u.n}${L ? ` <em class="hvtag hv${L}">${HV[L]}</em>` : ""}</b><span>${esc(u.t || "")}${u.tz ? " " + esc(u.tz) : ""}</span>${bar(t)}
       <small>${t.n} 字 · 已會 ${t.known} · 不會 ${t.l1 + t.l2 + t.l3}</small></button>
-      <div class="uact"><button class="chip" data-act="rlist" data-src="u:${B.id}:${u.n}${sfx}">總表</button><button class="chip solid" data-act="quizFrom" data-src="u:${B.id}:${u.n}${sfx}">測驗</button></div></div>`; }).join("")}</div></div>`;
+      <div class="uact"><button class="chip" data-act="rlist" data-src="u:${B.id}:${u.n}${sfx}">總表</button><button class="chip solid" data-act="quizFrom" data-src="u:${B.id}:${u.n}${sfx}">測驗</button>${(() => { const ns = uniq(cs).filter(c => M.star[c.k]).length; return ns ? `<button class="chip ustar" data-act="quizFrom" data-src="us:${B.id}:${u.n}${sfx}" title="只考這單元的星號字">★ ${ns}</button>` : ""; })()}</div></div>`; }).join("")}</div></div>`;
 };
 
 /* ---------- suggested-difficulty zone: ready-made sets of 20, no self-sorting needed ---------- */
@@ -308,6 +308,7 @@ function cardsFor(src) {
   const m = src.split(":");
   if (m[0] === "d") return m[2] ? [dfSet(+m[1], +m[2]), `難度 ${m[1]} ${DF[m[1]]} · 第 ${m[2]} 組`] : [dfCards(+m[1]), `難度 ${m[1]} ${DF[m[1]]}`];
   if (m[0] === "b") return [uniq(bank(m[1]).units.flatMap(u => hcards(u, +m[2] || 0))), bank(m[1]).name + (+m[2] ? " · " + HV[+m[2]] : "")];
+  if (m[0] === "us") { const B = bank(m[1]), u = unitOf(m[1], +m[2]), L = +m[3] || 0; return [uniq(hcards(u, L)).filter(c => M.star[c.k]), `${B.name} · ${B.ul} ${u.n}${L ? " · " + HV[L] : ""} · ★ 星號字`]; }
   if (m[0] === "u") { const B = bank(m[1]), u = unitOf(m[1], +m[2]), L = +m[3] || 0; return [hcards(u, L), `${B.name} · ${B.ul} ${u.n}${L ? " · " + HV[L] : ""}`]; }
   return [[], ""];
 }
@@ -316,20 +317,20 @@ let hpick = new Set();                              // quiz records (by timestam
 let setup = { src: "all", lv: { 1: true, 2: true, 3: true }, mode: "ed", n: 10 };
 function quizPool() {
   const [cards] = cardsFor(setup.src);
-  if (["lw", "due", "known", "hp"].includes(setup.src)) return cards;       // these lists are quizzed as they are
+  if (["lw", "due", "known", "hp", "star"].includes(setup.src) || setup.src.startsWith("us:")) return cards;       // these lists are quizzed as they are (us: a unit's ★ words)
   if (setup.src.startsWith("d:")) return cards.filter(c => lv(c.k) !== 0);   // difficulty zones: everything not yet marked known
   return cards.filter(c => { const l = lv(c.k); return l > 0 && setup.lv[l]; });
 }
 VIEWS.quizsetup = () => {
   if (arg.src) { setup.src = arg.src; arg = {}; }
-  const pool = quizPool(), fixed = ["lw", "due", "known", "hp"].includes(setup.src) || setup.src.startsWith("d:");
+  const pool = quizPool(), fixed = ["lw", "due", "known", "hp", "star"].includes(setup.src) || /^(d|us):/.test(setup.src);
   const opt = (v, t) => `<option value="${v}" ${setup.src === v ? "selected" : ""}>${esc(t)}</option>`;
   const cur = cardsFor(setup.src)[1];
   app.innerHTML = `<div class="page"><h2>測驗</h2><p class="muted">字庫範圍只考你標記「不會」的字；難度區會考所有還沒標「已經會了」的字。不會的等級越高，越常出現。</p>
     <label>範圍</label><select id="qsrc">${opt("all", "全部字庫")}${BANKS.map(B => opt("b:" + B.id, B.name) + (B.id === "h" && B.units.some(u => u.c.some(c => c.hv)) ? opt("b:h:1", B.name + " · 基礎字") + opt("b:h:2", B.name + " · 進階字") : "")).join("")}
       ${[1, 2, 3, 4].map(L => opt("d:" + L, `難度 ${L} · ${DF[L]}`)).join("")}
       ${opt("lw", "上次錯題")}${opt("due", "到期複習（已會的字）")}${opt("wrong", "全部錯題")}${opt("star", "星號單字")}
-      ${/^(u:|d:\d+:|hp$|lmix$|l[123]$)/.test(setup.src) ? opt(setup.src, cur) : ""}</select>
+      ${/^(u:|us:|d:\d+:|hp$|lmix$|l[123]$)/.test(setup.src) ? opt(setup.src, cur) : ""}</select>
     ${fixed ? "" : `<label>難度</label><div class="seg multi">${[1, 2, 3].map(n => `<button class="${setup.lv[n] ? "on" : ""}" data-act="qlv" data-l="${n}">不會 ${n}</button>`).join("")}</div>`}
     ${modePick()}
     <label>題數</label><div class="seg">${[10, 20, 30, 0].map(n => `<button class="${setup.n === n ? "on" : ""}" data-act="qn" data-n="${n}">${n || "全部"}</button>`).join("")}</div>
