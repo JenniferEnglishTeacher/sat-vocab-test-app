@@ -9,7 +9,7 @@ const OUT = path.join(__dirname, "..", "data");
 function loadJs(file) { const window = {}; eval(fs.readFileSync(path.join(SRC, file), "utf8")); return window; }
 const BANKS = [
   { id: "m", name: "Must-Know 306 / 386", zh: "必考 306 + 386", pre: "mk-unit", n: 30, unitLabel: "Unit" },
-  { id: "h", name: "Hot Words for the SAT", zh: "SAT 熱門字", pre: "hot-unit", n: 92, unitLabel: "Lesson" },
+  { id: "h", name: "Hot Words for the SAT", zh: "SAT 熱門字", pre: "hot-unit", n: loadJs("hot-words.js").HOT_LESSON_COUNT || 92, unitLabel: "Lesson" },
   { id: "b", name: "Barron's 1100 Words", zh: "Barron's 1100", pre: "unit", n: 46, unitLabel: "Unit" }
 ];
 const clean = w => String(w || "").replace(/\s*\(.*?\)\s*/g, " ").trim();
@@ -113,9 +113,15 @@ const rel = w => { const r = REL[w]; if (!r) return [[], []]; return [0, 1].map(
 const DIFF = process.env.DIFF_FILE ? JSON.parse(fs.readFileSync(process.env.DIFF_FILE, "utf8")) : null;
 if (!DIFF) { console.error("need DIFF_FILE (run tools/difficulty.py first)"); process.exit(1); }
 
+// ---- Hot Words 基礎/進階 per lesson (site tools/hot-level/build.py → hot-levels.js): hv 1 = 基礎字, 2 = 進階字 ----
+const HOT_CORE = fs.existsSync(path.join(SRC, "hot-levels.js")) ? loadJs("hot-levels.js").HOT_CORE : null;
+const HOT_MCQ = fs.existsSync(path.join(SRC, "hot-mcq.js")) ? loadJs("hot-mcq.js").HOT_MCQ : null;
+if (!HOT_CORE) console.warn("  hot-levels.js not found: Hot Words cards get no 基礎/進階 level");
+
 // ---- write ----
 fs.mkdirSync(OUT, { recursive: true });
 const meta = { version: VERSION, banks: [] };
+const oldMeta = fs.existsSync(path.join(OUT, "meta.json")) ? JSON.parse(fs.readFileSync(path.join(OUT, "meta.json"), "utf8")) : { banks: [] };
 for (const B of BANKS) {
   let count = 0, cloze = 0;
   const units = B.units.map(u => ({
@@ -127,6 +133,7 @@ for (const B of BANKS) {
       let b = null, o = null;
       if (q) { b = q.question; o = q.options.map(x => x.text); if (!o.some(x => x.toLowerCase() === k)) { b = null; o = null; } }
       if (!b && /_{3,}/.test(c.sentence || "")) b = c.sentence;
+      if (b && !o && B.id === "h" && HOT_MCQ && (HOT_MCQ[u.n] || {})[c.word]) o = [w, ...HOT_MCQ[u.n][c.word].map(clean)];   // site's checked wrong choices
       if (!b && B.id === "m") b = blankOwn(c.sentence || "", k, B.id);
       let inf = null; if (!b && B.id === "m") { inf = inflectedCloze(c, u, B, REL); if (inf) b = inf.b; else console.log("  no cloze:", w, "::", c.sentence); }
       const [syn, ant] = rel(k);
@@ -139,6 +146,7 @@ for (const B of BANKS) {
       if (syn.length) card.sy = syn; if (ant.length) card.an = ant;
       const df = DIFF[k]; if (!df) throw new Error("no difficulty for " + k); card.df = df[0]; card.dz = Math.round(df[1] * 100);
       if (c.root) card.r = c.root; if (c.source) card.src = c.source;
+      if (B.id === "h" && HOT_CORE) card.hv = (HOT_CORE[u.n] || []).includes(c.word) ? 1 : 2;
       return card;
     })
   }));
@@ -149,4 +157,5 @@ for (const B of BANKS) {
   meta.banks.push({ id: B.id, name: B.name, zh: B.zh, units: units.length, words: count });
   console.log(B.id, B.name, "units", units.length, "cards", count, "cloze", cloze, "bytes", enc.length);
 }
+meta.banks.push(...oldMeta.banks.filter(b => !BANKS.some(B => B.id === b.id)));   // keep banks built by other scripts (易混淆字 "c")
 fs.writeFileSync(path.join(OUT, "meta.json"), JSON.stringify(meta));

@@ -218,3 +218,11 @@ body.full .page.quiz,body.full .page.game{flex:1;overflow-y:auto}
 .card .cfbox .trap { color: #9a5a00; }
 .card .cfh { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .card .cfh small { color: #b4235a; font-weight: 700; }
+/* Hot Words lessons: 基礎字 / 進階字 */
+.hvbar { margin: 0 0 12px; }
+.hvbar .seg { margin-bottom: 6px; }
+.hvbar .seg button small { opacity: .7; font-weight: 600; margin-left: 2px; }
+.hvbar .seg button.hv1.on { background: #2e7d32; border-color: #2e7d32; color: #fff; }
+.hvbar .seg button.hv2.on { background: #6a1b9a; border-color: #6a1b9a; color: #fff; }
+.hvtag { font-style: normal; font-size: .72em; font-weight: 700; padding: 1px 7px; border-radius: 999px; margin-left: 4px; vertical-align: 2px; color: #fff; }
+.hvtag.hv1 { background: #2e7d32; } .hvtag.hv2 { background: #6a1b9a; }
