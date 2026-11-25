@@ -66,10 +66,11 @@ for (const u of units) {
       const rel = s => String(s || "").split(/\s*,\s*/).map(x => x.toLowerCase()).filter(x => ALL.has(x) && x !== k);
       if (w.syn) card.s = w.syn;
       const sy = rel(w.syn), an = rel(w.ant); if (sy.length) card.sy = sy; if (an.length) card.an = an;
-      const others = members.filter(x => x !== k); if (others.length) card.gm = others;
+      const ex = new Set((w.ex || []).map(key));                                            // near-synonyms in the group are never offered as wrong choices
+      const others = members.filter(x => x !== k && !ex.has(x)); if (others.length) card.gm = others;
       const cz = g.qs.find(q => q.k === "cz" && key(q.w) === k);
       if (cz) {
-        card.b = cz.q.replace("_____", "__________"); card.go = cz.o; card.goh = g.words.map(x => key(x.w)); card.ao = cz.o[cz.a];
+        card.b = cz.q.replace("_____", "__________"); card.go = cz.o; card.goh = cz.oh.map(key); card.ao = cz.o[cz.a];
         const bh = highlights(card.b, k).filter(x => x[2] !== k); if (bh.length) card.bh = bh;
         cloze++;
       }
