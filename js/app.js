@@ -621,7 +621,7 @@ const ACT = {
   hpk: d => { const t = +d.ts; if (hpick.has(t)) hpick.delete(t); else hpick.add(t); render(); },
   hpall: () => { M.hist.filter(h => h.wrong.length).forEach(h => hpick.add(h.ts)); render(); },
   hpnone: () => { hpick.clear(); render(); },
-  rev: (d, el) => el.closest(".trow").classList.toggle("open"),
+  rev: (d, el) => { const r = el.closest(".trow"); if (r.classList.toggle("open")) { const b = r.querySelector("[data-act=say]"); if (b) { hush(); speak(b.dataset.t); } } },   // opening a row also says the word
   revAll: (d, el) => { const rows = [...app.querySelectorAll(".trow")], open = !rows.every(r => r.classList.contains("open")); rows.forEach(r => r.classList.toggle("open", open)); app.querySelectorAll("[data-act=revAll]").forEach(b => b.textContent = open ? "全部隱藏" : "全部顯示"); },
   rnum: d => { rnum = +d.n; app.querySelectorAll("#rnum button").forEach(b => b.classList.toggle("on", +b.dataset.n === rnum)); },
   rstart: d => { const [cards, label] = cardsFor(d.src), isUnit = /^u:/.test(d.src); setup.src = d.src;
