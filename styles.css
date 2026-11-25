@@ -209,3 +209,12 @@ body.full .page.quiz,body.full .page.game{flex:1;overflow-y:auto}
 .hpk div{flex:1;display:flex;flex-direction:column;min-width:0}.hpk em{font-style:normal;color:var(--no);font-weight:700;font-size:.85rem;white-space:nowrap}
 .hpbar{position:sticky;bottom:calc(3.6rem + env(safe-area-inset-bottom));background:var(--bg);padding:.6rem 0}.hpbar span{font-size:.88rem;color:var(--mut)}.hpbar .btn{margin-top:.4rem}
 .btn[disabled]{opacity:.45}
+/* 易混淆字 bank */
+.card .cm { margin: 6px 0; padding: 8px 10px; border-radius: 10px; background: rgba(120,140,160,.12); font-size: .92em; line-height: 1.5; }
+.card .cm span { color: var(--mut); }
+.card .cfbox { margin: 8px 0; padding: 10px 12px; border-left: 4px solid #b4235a; border-radius: 10px; background: rgba(180,35,90,.08); font-size: .92em; line-height: 1.5; }
+.card .cfbox p { margin: 4px 0; }
+.card .cfbox .en { opacity: .8; }
+.card .cfbox .trap { color: #9a5a00; }
+.card .cfh { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.card .cfh small { color: #b4235a; font-weight: 700; }

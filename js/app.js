@@ -33,7 +33,7 @@ async function loadBanks() {
   const meta = await (await fetch("data/meta.json?v=" + CFG.version)).json();
   const key = await crypto.subtle.importKey("raw", b64(auth.key), "AES-GCM", false, ["decrypt"]);
   BANKS = await Promise.all(meta.banks.map(async m => {
-    const buf = new Uint8Array(await (await fetch(`data/${m.id}.bin?v=${meta.version}`)).arrayBuffer());
+    const buf = new Uint8Array(await (await fetch(`data/${m.id}.bin?v=${m.v || meta.version}`)).arrayBuffer());
     const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf.slice(0, 12) }, key, buf.slice(12));
     return JSON.parse(new TextDecoder().decode(plain));
   }));
@@ -53,7 +53,7 @@ const isDue = k => W[k] && W[k][0] === 0 && W[k][3] <= today();
 const uniq = cards => { const seen = {}; return cards.filter(c => !seen[c.k] && (seen[c.k] = 1)); };
 function tally(cards) { const t = { n: 0, known: 0, l1: 0, l2: 0, l3: 0, new: 0 }; uniq(cards).forEach(c => { t.n++; const l = lv(c.k); if (l < 0) t.new++; else if (l === 0) t.known++; else t["l" + l]++; }); return t; }
 
-const dfCards = L => uniq(CARDS).filter(c => c.df === L).sort((a, b) => b.dz - a.dz || (a.k < b.k ? -1 : 1));   // commonest first
+const dfCards = L => uniq(CARDS.filter(c => c.bank !== "c")).filter(c => c.df === L).sort((a, b) => b.dz - a.dz || (a.k < b.k ? -1 : 1));   // commonest first
 const dfSet = (L, S) => dfCards(L).slice((S - 1) * SETSIZE, S * SETSIZE);
 
 /* ---------- speech ---------- */
@@ -242,6 +242,9 @@ VIEWS.cards = () => {
       <div class="pos">${esc(c.p)}</div>
       <p class="def">${esc(c.d)}</p><p class="zh">${esc(c.z)}</p>
       ${c.r ? `<p class="root">字源 ${esc(c.r)}</p>` : ""}
+      ${c.cm ? `<p class="cm"><small>常見義</small> <em>${esc(c.cm[0])}</em> ${esc(c.cm[2])} — ${esc(c.cm[1])}<br><span>${esc(c.cm[3])}</span></p>` : ""}
+      ${c.g ? `<div class="cfbox"><div class="cfh"><small>易混淆 ${esc(c.g.id)}</small>${[c.k, ...(c.gm || [])].map(k => k === c.k ? `<b>${esc(c.w)}</b>` : `<button class="chip" data-act="pop" data-w="${esc(k)}">${esc(k)}</button>`).join("")}</div>
+        <p>💡 ${esc(c.g.tz)}</p><p class="en">${esc(c.g.te)}</p><p class="trap">⚠ ${esc(c.g.tr)}</p></div>` : ""}
       <div class="sent"><div class="sl"><small>例句</small><button class="spk" data-act="saySent">🔊</button></div>
         <p class="en">${sentenceHtml(c)}</p><p class="tr">${esc(c.at)}</p></div>
       ${rel("SAT 同義字", c.sy) + rel("SAT 反義字", c.an)}
@@ -337,6 +340,9 @@ function distractors(c, field) {
     if (out.length >= 3 || bad.has(x.k) || x.pg !== c.pg || (x.sy || []).includes(c.k)) return;
     const v = String(x[field]).toLowerCase(); if (seen.has(v)) return; seen.add(v); out.push(x);
   });
+  (c.gm || []).forEach(k => { const x = lookup(k, "c"); if (!x || out.length >= 3) return; const v = String(x[field]).toLowerCase(); if (seen.has(v)) return; seen.add(v); out.push(x); });   // 易混淆字: the look-alikes are the choices
+  if (c.cm && field !== "w" && out.length < 3) out.push({ w: c.w + "（常見義）", k: c.k, p: c.cm[0], d: c.cm[1], z: c.cm[2], pg: c.pg });   // 熟字僻義: the everyday meaning is the trap
+  if (c.bank === "c" && field !== "w") { const pool = shuffle(bank("c").units.flatMap(u => u.c)); pool.forEach(x => { if (out.length >= 3 || x.k === c.k || x.pg !== c.pg) return; const v = String(x[field]).toLowerCase(); if (seen.has(v)) return; seen.add(v); out.push(x); }); }
   const near = d => B.units.filter(u => Math.abs(u.n - c.unit) <= d && u.n !== c.unit).flatMap(u => u.c);
   if (c.bank !== "h") take(unitOf(c.bank, c.unit).c);   // Hot Words lessons are synonym groups, so same-lesson choices would be unfair
   take(near(2)); take(near(6)); take(B.units.flatMap(u => u.c)); take(CARDS);
@@ -350,7 +356,8 @@ function makeQ(c, mode) {
   if (mode === "sp") return { c, mode };
   if (mode === "cz") {
     let pairs;                                    // [option text, that option's card]
-    if (c.ao) pairs = [[c.ao, c], ...shuffle(c.od.map((f, i) => [f, lookup((c.odh || [])[i] || "", c.bank)])).slice(0, 3)];   // sentence uses a changed form (abated): options take the same form
+    if (c.go) pairs = c.go.map((f, i) => [f, f === c.ao ? c : lookup(c.goh[i], "c")]);   // 易混淆字: only the group's look-alikes, in the sentence's form
+    else if (c.ao) pairs = [[c.ao, c], ...shuffle(c.od.map((f, i) => [f, lookup((c.odh || [])[i] || "", c.bank)])).slice(0, 3)];   // sentence uses a changed form (abated): options take the same form
     else if (c.o && c.o.length === 4) pairs = c.o.map(o => [o, o.toLowerCase() === c.k ? c : lookup(o.toLowerCase(), c.bank)]);
     else pairs = [[c.w, c], ...distractors(c, "w").map(x => [x.w, x])];
     pairs = shuffle(pairs);
