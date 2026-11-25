@@ -76,28 +76,79 @@ async function api(body) {
   const r = await fetch(CFG.api, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(body), redirect: "follow" });
   return r.json();
 }
+const stampNow = () => Math.floor(Date.now() / 1000);
+const getBase = () => { try { return JSON.parse(localStorage.getItem("sva.base") || "null"); } catch (e) { return null; } };
+const setBase = str => { try { localStorage.setItem("sva.base", str); } catch (e) {} };
+/* Two-way sync: fold the record saved on the server (possibly written by the student's other device) into this device's record.
+   Words: the more recently changed entry wins. Stars and counters: three-way against the last state both sides agreed on ("base"),
+   so a star removed or a game token spent on one device is not brought back by the other. Returns true when something changed here. */
+function mergeRemote(str) {
+  let r; try { r = JSON.parse(str); } catch (e) { return false; }
+  if (!r || typeof r !== "object") return false;
+  const b = getBase(), stamp = x => x[7] || (x[5] || 0) * 86400 - 50400;
+  let ch = false;
+  for (const [k, x] of Object.entries(r.w || {})) {
+    const m = W[k];
+    if (!Array.isArray(x)) continue;
+    if (!m) { W[k] = x; ch = true; continue; }
+    const newer = stamp(x) > stamp(m) || (stamp(x) === stamp(m) && (x[6] || 0) > (m[6] || 0));
+    const wrong = Math.max(x[4] || 0, m[4] || 0), tries = Math.max(x[6] || 0, m[6] || 0), pick = newer ? x.slice() : m;
+    if (newer || (pick[4] || 0) !== wrong || (pick[6] || 0) !== tries) ch = true;
+    pick[4] = wrong; pick[6] = tries; W[k] = pick;
+  }
+  const rs = r.s || {}, bs = b ? b.s || {} : null;
+  for (const k in rs) if (!M.star[k] && !(bs && bs[k])) { M.star[k] = 1; ch = true; }
+  if (bs) for (const k in bs) if (!rs[k] && M.star[k]) { delete M.star[k]; ch = true; }
+  const num = (l, rv, bv, canDrop) => { l = l || 0; rv = rv || 0; if (!b) return Math.max(l, rv); const d = rv - (bv || 0); return Math.max(0, l + (canDrop ? d : Math.max(0, d))); };
+  const t = num(M.tokens, r.t, b && b.t, true), c = num(M.correct, r.c, b && b.c, false);
+  if (t !== M.tokens || c !== M.correct) { M.tokens = t; M.correct = c; ch = true; }
+  for (const [dk, rd] of Object.entries(r.d || {})) {
+    const ld = M.days[dk] || { c: 0, q: 0, r: 0 }, bd = (b && b.d && b.d[dk]) || {};
+    for (const f of ["c", "q", "r"]) { const v = num(ld[f], rd[f], bd[f], false); if (v !== (ld[f] || 0)) { ld[f] = v; ch = true; } }
+    if (ld.c || ld.q || ld.r) M.days[dk] = ld;
+  }
+  const mine = M.hist.length ? M.hist[0].ts : 0, seen = new Set(M.hist.map(h => h.ts));
+  (r.h || []).forEach(h => { if (h && !seen.has(h.ts)) { M.hist.push(h); ch = true; } });
+  M.hist.sort((x, y) => y.ts - x.ts); M.hist = M.hist.slice(0, 100);
+  if (M.hist.length && M.hist[0].ts > mine && Array.isArray(r.lw)) M.lastWrong = r.lw;     // the newest quiz was taken on the other device
+  if (!M.last && r.l) M.last = r.l;
+  if (ch) { LS.set("words", W); saveM(); }
+  return ch;
+}
 const packState = () => JSON.stringify({ w: W, s: M.star, lw: M.lastWrong, d: Object.fromEntries(Object.entries(M.days).slice(-40)), t: M.tokens, c: M.correct, h: M.hist.slice(0, 40), l: M.last });
 function unpackState(s) {
-  try { const o = JSON.parse(s); W = o.w || {}; M.star = o.s || {}; M.lastWrong = o.lw || []; M.days = o.d || {}; M.tokens = o.t || 0; M.correct = o.c || 0; M.hist = o.h || []; M.last = o.l || null; LS.set("words", W); saveM(); } catch (e) {}
+  try { const o = JSON.parse(s); W = o.w || {}; M.star = o.s || {}; M.lastWrong = o.lw || []; M.days = o.d || {}; M.tokens = o.t || 0; M.correct = o.c || 0; M.hist = o.h || []; M.last = o.l || null; LS.set("words", W); saveM(); setBase(s); } catch (e) {}
 }
 let syncing = false;
 async function sync(force) {
   if (!auth || syncing || (!force && !M.dirty && !M.queue.length)) return "idle";
   syncing = true;
+  let wasDirty = M.dirty;
   try {
-    const sent = M.queue.slice(), t = tally(CARDS);
-    const res = await api({ action: "sync", code: auth.code, device: auth.device, state: packState(), quizzes: sent,
+    // 1. fetch what the server has (the other device may have saved since) and merge it in
+    const pull = await api({ action: "login", code: auth.code, device: auth.device });
+    if (!pull.ok) { if (["invalid", "inactive", "devices"].includes(pull.error)) { lockOut(pull.error === "devices" ? "device" : pull.error); return "locked"; } return "fail"; }
+    const changed = pull.state ? mergeRemote(pull.state) : false;
+    // 2. save the merged record back
+    const sent = M.queue.slice(), t = tally(CARDS), st = packState();
+    wasDirty = M.dirty; M.dirty = false;              // anything changed while the request is on its way sets it again
+    const res = await api({ action: "sync", code: auth.code, device: auth.device, state: st, quizzes: sent,
       summary: { known: t.known, l1: t.l1, l2: t.l2, l3: t.l3, streak: streak(), cardsToday: day().c } });
-    if (res.ok) { M.queue = M.queue.slice(sent.length); M.dirty = false; M.lastSync = Date.now(); saveM(); auth.lastOk = Date.now(); LS.set("auth", auth); return "ok"; }
+    if (res.ok) { setBase(st); M.queue = M.queue.slice(sent.length); M.lastSync = Date.now(); saveM(); auth.lastOk = Date.now(); LS.set("auth", auth); if (changed && view === "home") render(); return "ok"; }
+    M.dirty = M.dirty || wasDirty; saveM();
     if (["invalid", "inactive", "device"].includes(res.error)) { lockOut(res.error); return "locked"; }
+    if (changed && view === "home") render();
     return "fail";
-  } catch (e) { return "offline"; } finally { syncing = false; }
+  } catch (e) { M.dirty = M.dirty || wasDirty; return "offline"; } finally { syncing = false; }
 }
 function lockOut(why) {
   auth = null; LS.del("auth"); ready = false; BANKS = []; CARDS = []; INDEX = {};
   go("login", { msg: why === "inactive" ? "這組代碼已停用，請聯絡 Jennifer 老師。" : why === "device" ? "這支裝置已被移除，請重新輸入代碼。" : "代碼無效，請聯絡 Jennifer 老師。" });
 }
-document.addEventListener("visibilitychange", () => { if (document.hidden) { hush(); sync(); } });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { hush(); sync(); }
+  else if (ready && Date.now() - (M.lastSync || 0) > 30000) sync(true);     // back in the app: pick up what the other device did
+});
 
 /* ---------- small UI helpers ---------- */
 let toastT;
@@ -268,12 +319,12 @@ function move(d) {
 }
 function setLevel(k, l) {
   const old = W[k];
-  W[k] = l === 0 ? [0, 0, 0, today() + REVIEW_GAPS[0], old ? old[4] : 0, today(), old ? old[6] || 0 : 0] : [l, 0, 0, 0, old ? old[4] : 0, today(), old ? old[6] || 0 : 0];
+  W[k] = l === 0 ? [0, 0, 0, today() + REVIEW_GAPS[0], old ? old[4] : 0, today(), old ? old[6] || 0 : 0, stampNow()] : [l, 0, 0, 0, old ? old[4] : 0, today(), old ? old[6] || 0 : 0, stampNow()];
   saveW();
 }
 function rate(l) {
   const c = deck.cards[deck.i], old = W[c.k], first = !old || old[5] !== today();
-  setLevel(c.k, l); if (first) { day().c++; saveM(); }
+  setLevel(c.k, l); if (first) { day().c++; M.dirty = true; saveM(); }
   move(1);
 }
 const LVBTN = [[3, "完全不會 3"], [2, "不熟 2"], [1, "有點不熟 1"], [0, "已經會了"]];
@@ -434,7 +485,7 @@ function answer(val, ok) {
     if (!quiz.wrong.includes(k)) quiz.wrong.push(k);
     s[4]++; s[1] = 0; s[0] = s[0] === 0 || fresh ? 1 : Math.min(3, s[0] + 1); quiz.note = `已記入錯題本，目前「${LV[s[0]]}」。`;
   }
-  s[5] = today(); W[k] = s; saveW(); render();
+  s[5] = today(); s[7] = stampNow(); W[k] = s; saveW(); render();
 }
 function finishQuiz() {
   const secs = Math.round((Date.now() - quiz.t0) / 1000), u = setup.src.split(":");
@@ -584,7 +635,7 @@ function gameWords(n) {
 }
 function startGame() {
   if (!M.tokens) return toast("每答對 10 題可以玩一局");
-  M.tokens--; saveM();
+  M.tokens--; M.dirty = true; saveM();
   const type = shuffle(["match", "speed", "scramble"])[0];
   if (type === "match") { const ws = gameWords(6); game = { type, tiles: shuffle(ws.flatMap(c => [{ k: c.k, t: c.w, en: 1 }, { k: c.k, t: c.z }])), open: [], gone: {}, moves: 0, t0: Date.now() }; }
   if (type === "speed") { game = { type, ws: gameWords(30), score: 0, n: 0, left: 30 }; nextSpeed(); game.timer = setInterval(() => { if (view !== "game") return clearInterval(game.timer); if (--game.left <= 0) { clearInterval(game.timer); game.over = true; } render(); }, 1000); }
@@ -660,7 +711,7 @@ const ACT = {
   theme: () => { M.set.theme = M.set.theme === "dark" ? "light" : "dark"; saveM(); render(); },
   syncNow: async () => { toast("同步中…"); const r = await sync(true); toast({ ok: "已同步", offline: "沒有網路，稍後會自動同步", fail: "同步失敗", idle: "已同步", locked: "" }[r] || ""); if (view === "settings") render(); },
   logout: () => sheet(`<div class="popw"><h2>確定登出？</h2><p>會先把紀錄同步給老師。重新登入後紀錄會還原。</p><button class="btn primary" data-act="logout2">登出</button><button class="btn" data-act="closeSheet">取消</button></div>`),
-  logout2: async () => { const r = await sync(true); if (r !== "ok" && r !== "idle") { closeSheet(); return toast("需要網路才能登出（避免紀錄遺失）"); } ["auth", "words", "meta"].forEach(LS.del); location.reload(); },
+  logout2: async () => { const r = await sync(true); if (r !== "ok" && r !== "idle") { closeSheet(); return toast("需要網路才能登出（避免紀錄遺失）"); } ["auth", "words", "meta", "base"].forEach(LS.del); location.reload(); },
   game: () => startGame(),
   gmatch: d => { const g = game, i = +d.i, t = g.tiles[i]; if (g.gone[t.k] || g.open.includes(i) || g.open.length === 2) return; g.open.push(i); if (t.en) { hush(); speak(t.t); }
     if (g.open.length === 2) { g.moves++; const [a, b] = g.open.map(x => g.tiles[x]); if (a.k === b.k && a.en !== b.en) { g.gone[a.k] = 1; g.open = []; if (Object.keys(g.gone).length === g.tiles.length / 2) { g.over = true; g.t1 = Date.now(); } } else setTimeout(() => { g.open = []; if (view === "game") render(); }, 700); }
