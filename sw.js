@@ -1,5 +1,5 @@
 // Service worker: app shell works offline; word banks are cached after the first download.
-const SHELL = "sva-shell-20261125d", DATA = "sva-data";
+const SHELL = "sva-shell-20261125e", DATA = "sva-data";
 const FILES = ["./", "index.html", "styles.css", "js/config.js", "js/app.js", "manifest.webmanifest", "icons/icon-192.png", "icons/icon-180.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(SHELL).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", e => {
